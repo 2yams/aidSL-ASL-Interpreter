@@ -1,0 +1,10 @@
+{
+  "name": "aidSL - AI Sign Language Studio",
+  "description": "Editorial-grade AI Sign Language studio with real-time hand-tracking ML, live gesture practice, Gemini ASL mentor, and learning dashboards.",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
