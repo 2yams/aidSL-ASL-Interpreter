@@ -14,7 +14,7 @@ export default function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   const [settings, setSettings] = useState<SamplingSettings>({
-    confidenceThreshold: 75,
+    confidenceThreshold: 83,
     samplingIntervalMs: 100,
     frameRateFps: 30,
     showSkeleton: true,
@@ -75,6 +75,7 @@ export default function App() {
           <LiveCameraStudio
             settings={settings}
             onOpenSettings={() => setIsSettingsOpen(true)}
+            onUpdateSettings={setSettings}
             onLetterMastered={handleLetterMastered}
             practiceLetter={practiceLetter}
           />

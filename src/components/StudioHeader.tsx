@@ -46,7 +46,7 @@ export const StudioHeader: React.FC<StudioHeaderProps> = ({
           }`}
         >
           <Camera className="w-3.5 h-3.5" />
-          <span>Live Studio</span>
+          <span>Learn</span>
         </button>
 
         <button

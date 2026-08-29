@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useState, useCallback } from "react";
 import { Camera, Volume2, Sparkles, ChevronRight, ChevronLeft, Settings, AlertCircle, PlayCircle, RefreshCw, Info, X, CheckCircle, BookOpen } from "lucide-react";
-import { ASL_ALPHABET } from "../data/aslAlphabet";
+import { ASL_ALPHABET, ASL_PHRASES } from "../data/aslAlphabet";
 import { SamplingSettings, DetectionResult, Point3D } from "../types/sign";
 import { speakWithJapaneseAccent } from "../services/speechService";
 import { initHandLandmarker, classifyHandGesture, drawHandLandmarksOnCanvas, generateSyntheticLandmarks, drawHandBoundingBoxWithLabel } from "../services/handDetector";
@@ -9,13 +9,95 @@ import confetti from "canvas-confetti";
 interface LiveCameraStudioProps {
   settings: SamplingSettings;
   onOpenSettings: () => void;
+  onUpdateSettings?: (newSettings: SamplingSettings) => void;
   onLetterMastered?: (letter: string) => void;
   practiceLetter?: string;
+}
+
+// Extract tokens from input (grouping known phrases even within sentences)
+export interface StudioToken {
+  id: string;
+  type: "phrase" | "letter" | "space";
+  value: string;
+  display: string;
+  phraseData?: (typeof ASL_PHRASES)[number];
+}
+
+export function parseSentenceTokens(text: string): StudioToken[] {
+  const upper = text.toUpperCase();
+  const tokens: StudioToken[] = [];
+  let i = 0;
+  let tokenId = 0;
+
+  // Sorted by length descending so longer phrases like "I LOVE YOU" match before single words
+  const sortedPhrases = [...ASL_PHRASES].sort((a, b) => b.phrase.length - a.phrase.length);
+
+  while (i < upper.length) {
+    const remaining = upper.slice(i);
+    let matchedPhrase: (typeof ASL_PHRASES)[number] | null = null;
+
+    for (const phraseItem of sortedPhrases) {
+      const phraseText = phraseItem.phrase.toUpperCase();
+      if (remaining.startsWith(phraseText)) {
+        const charBefore = i > 0 ? upper[i - 1] : " ";
+        const charAfter = i + phraseText.length < upper.length ? upper[i + phraseText.length] : " ";
+
+        const isBoundaryBefore = /[^A-Z0-9]/.test(charBefore);
+        const isBoundaryAfter = /[^A-Z0-9]/.test(charAfter);
+
+        if (isBoundaryBefore && isBoundaryAfter) {
+          matchedPhrase = phraseItem;
+          break;
+        }
+      }
+    }
+
+    if (matchedPhrase) {
+      tokens.push({
+        id: `phrase-${tokenId++}`,
+        type: "phrase",
+        value: matchedPhrase.phrase,
+        display: matchedPhrase.phrase,
+        phraseData: matchedPhrase,
+      });
+      i += matchedPhrase.phrase.length;
+    } else {
+      const char = upper[i];
+      if (char === " " || char === "\n" || char === "\t") {
+        tokens.push({
+          id: `space-${tokenId++}`,
+          type: "space",
+          value: " ",
+          display: " ",
+        });
+        i += 1;
+      } else if (/[A-Z]/.test(char)) {
+        tokens.push({
+          id: `letter-${tokenId++}`,
+          type: "letter",
+          value: char,
+          display: char,
+        });
+        i += 1;
+      } else {
+        tokens.push({
+          id: `sep-${tokenId++}`,
+          type: "space",
+          value: char,
+          display: char,
+        });
+        i += 1;
+      }
+    }
+  }
+
+  return tokens;
 }
 
 export const LiveCameraStudio: React.FC<LiveCameraStudioProps> = ({
   settings,
   onOpenSettings,
+  onUpdateSettings,
   onLetterMastered,
   practiceLetter,
 }) => {
@@ -25,7 +107,7 @@ export const LiveCameraStudio: React.FC<LiveCameraStudioProps> = ({
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [subtext, setSubtext] = useState("");
   const [isLoadingSubtext, setIsLoadingSubtext] = useState(false);
-  const [showGuidancePopup, setShowGuidancePopup] = useState(false);
+  const [showGuidancePopup, setShowGuidancePopup] = useState(true);
 
   useEffect(() => {
     if (practiceLetter) {
@@ -49,17 +131,44 @@ export const LiveCameraStudio: React.FC<LiveCameraStudioProps> = ({
   const animFrameRef = useRef<number | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
 
-  // Extract letter tokens from input
-  const rawChars = inputText.toUpperCase().split("");
-  const tokens = rawChars.filter((c) => /[A-Z]/.test(c));
+  // Parse sentence into structured tokens (phrases, letters, separators)
+  const allTokens = React.useMemo(() => parseSentenceTokens(inputText), [inputText]);
+  const playableTokens = React.useMemo(
+    () => allTokens.filter((t) => t.type === "phrase" || t.type === "letter"),
+    [allTokens]
+  );
 
-  const currentLetter = tokens[activeLetterIdx] || "H";
-  const letterData = ASL_ALPHABET[currentLetter] || ASL_ALPHABET["H"];
+  const safeActiveIdx = playableTokens.length > 0
+    ? Math.min(Math.max(0, activeLetterIdx), playableTokens.length - 1)
+    : 0;
+
+  const currentToken = playableTokens[safeActiveIdx] || {
+    id: "def",
+    type: "letter" as const,
+    value: "H",
+    display: "H",
+  };
+
+  const currentLetter = currentToken.value;
+  const isCurrentTargetPhrase = currentToken.type === "phrase";
+  const currentPhraseData = currentToken.phraseData;
+
+  const letterData = currentPhraseData
+    ? {
+        letter: currentPhraseData.phrase,
+        title: `${currentPhraseData.phrase} (${currentPhraseData.category})`,
+        description: currentPhraseData.translation,
+        geminiSubtext: currentPhraseData.explanation,
+        tip: currentPhraseData.explanation,
+        fingerState: { thumb: "extended", index: "extended", middle: "curled", ring: "curled", pinky: "extended" },
+        difficulty: "Beginner" as const,
+      }
+    : (ASL_ALPHABET[currentLetter] || ASL_ALPHABET["H"]);
 
   const lettersScrollRef = useRef<HTMLDivElement | null>(null);
   const matchHoldRef = useRef<number>(0);
 
-  // Auto scroll active letter into view whenever activeLetterIdx changes
+  // Auto scroll active token card into view whenever safeActiveIdx changes
   useEffect(() => {
     if (lettersScrollRef.current) {
       const activeEl = lettersScrollRef.current.querySelector<HTMLElement>('[data-active="true"]');
@@ -67,7 +176,7 @@ export const LiveCameraStudio: React.FC<LiveCameraStudioProps> = ({
         activeEl.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
       }
     }
-  }, [activeLetterIdx, inputText]);
+  }, [safeActiveIdx, inputText]);
 
   // Fetch Gemini subtext
   const fetchSubtext = useCallback(async (letter: string) => {
@@ -208,8 +317,8 @@ export const LiveCameraStudio: React.FC<LiveCameraStudioProps> = ({
                     onLetterMastered(currentLetter);
                   }
                   if (settings.autoAdvance) {
-                    if (activeLetterIdx < tokens.length - 1) {
-                      setActiveLetterIdx((prev) => Math.min(tokens.length - 1, prev + 1));
+                    if (safeActiveIdx < playableTokens.length - 1) {
+                      setActiveLetterIdx((prev) => Math.min(playableTokens.length - 1, prev + 1));
                     }
                   }
                 }
@@ -285,7 +394,7 @@ export const LiveCameraStudio: React.FC<LiveCameraStudioProps> = ({
       isActive = false;
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
     };
-  }, [cameraMode, currentLetter, settings, activeLetterIdx, tokens.length]);
+  }, [cameraMode, currentLetter, settings, safeActiveIdx, playableTokens.length]);
 
   const handleAnalyzeFrameWithGemini = async () => {
     if (!canvasRef.current) return;
@@ -354,28 +463,100 @@ export const LiveCameraStudio: React.FC<LiveCameraStudioProps> = ({
             </p>
           </div>
 
-          <div>
-            <label className="text-[10px] uppercase tracking-[0.2em] font-bold block mb-2 text-[#1A1A1A]">
-              Input Sentence or Message
-            </label>
-            <div className="space-y-2">
-              <textarea
-                value={inputText}
-                onChange={(e) => {
-                  setInputText(e.target.value.toUpperCase());
-                  setActiveLetterIdx(0);
-                }}
-                rows={3}
-                placeholder="Type sentence..."
-                className="w-full bg-[#F8F7F3] border border-[#E0E0E0] p-3 text-sm font-mono text-[#1A1A1A] focus:outline-none focus:border-black resize-none"
-              />
-              <button
-                onClick={handleSpeakText}
-                className="w-full py-2 bg-[#F8F7F3] hover:bg-[#E8E6E1] border border-[#D1D1D1] text-[10px] uppercase tracking-[0.15em] font-semibold text-[#1A1A1A] transition-colors cursor-pointer flex items-center justify-center gap-2"
-              >
-                <Volume2 className="w-3.5 h-3.5" />
-                <span>Audio Pronunciation</span>
-              </button>
+          <div className="space-y-4">
+            <div className="space-y-2 p-3 bg-[#F8F7F3] border border-[#D1D1D1]">
+              <div className="flex items-center justify-between">
+                <label className="text-[10px] uppercase tracking-[0.2em] font-bold text-[#1A1A1A] flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                  <span>Phrases & Preset Sentences</span>
+                </label>
+                <span className="text-[9px] text-[#777] font-mono">Gesture Presets</span>
+              </div>
+
+              {/* Standalone Whole-Gesture Phrases */}
+              <div className="flex flex-wrap gap-1.5">
+                {ASL_PHRASES.map((p) => {
+                  const isSelected = inputText.trim().toUpperCase() === p.phrase.toUpperCase();
+                  return (
+                    <button
+                      key={p.id}
+                      onClick={() => {
+                        setInputText(p.phrase);
+                        setActiveLetterIdx(0);
+                      }}
+                      className={`px-2.5 py-1 text-[10px] font-mono tracking-wider border transition-colors cursor-pointer flex items-center gap-1.5 ${
+                        isSelected
+                          ? "bg-black text-white border-black font-bold shadow-sm"
+                          : "bg-white border-[#D1D1D1] text-[#333] hover:border-black hover:text-black"
+                      }`}
+                    >
+                      <span>{p.phrase}</span>
+                      <span className={`text-[8px] px-1 py-0.2 rounded font-sans uppercase ${isSelected ? "bg-white/20 text-emerald-300" : "bg-[#EFEFEF] text-[#666]"}`}>
+                        {p.category}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Example Sentences Grouping Phrases */}
+              <div className="pt-2 border-t border-[#E5E5E5] space-y-1">
+                <span className="text-[9px] uppercase tracking-wider font-mono text-[#777] block">
+                  Example Sentences (Phrases Grouped):
+                </span>
+                <div className="flex flex-wrap gap-1">
+                  {[
+                    "HELLO WORLD",
+                    "PLEASE AND THANK YOU",
+                    "PEACE & LOVE",
+                    "I LOVE YOU ALL",
+                  ].map((sentence) => (
+                    <button
+                      key={sentence}
+                      onClick={() => {
+                        setInputText(sentence);
+                        setActiveLetterIdx(0);
+                      }}
+                      className={`px-2 py-0.5 text-[9px] font-mono border transition-colors cursor-pointer ${
+                        inputText.toUpperCase() === sentence
+                          ? "bg-black text-white border-black font-bold"
+                          : "bg-white border-[#D1D1D1] text-[#555] hover:border-black hover:text-black"
+                      }`}
+                    >
+                      {sentence}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <p className="text-[9px] text-[#777] font-light italic leading-tight pt-0.5">
+                Any known phrase within your text is grouped into a whole-sign gesture unit.
+              </p>
+            </div>
+
+            <div>
+              <label className="text-[10px] uppercase tracking-[0.2em] font-bold block mb-2 text-[#1A1A1A]">
+                Input Custom Sentence or Word
+              </label>
+              <div className="space-y-2">
+                <textarea
+                  value={inputText}
+                  onChange={(e) => {
+                    setInputText(e.target.value.toUpperCase());
+                    setActiveLetterIdx(0);
+                  }}
+                  rows={3}
+                  placeholder="Type letters or full sentence..."
+                  className="w-full bg-[#F8F7F3] border border-[#E0E0E0] p-3 text-sm font-mono text-[#1A1A1A] focus:outline-none focus:border-black resize-none"
+                />
+                <button
+                  onClick={handleSpeakText}
+                  className="w-full py-2 bg-[#F8F7F3] hover:bg-[#E8E6E1] border border-[#D1D1D1] text-[10px] uppercase tracking-[0.15em] font-semibold text-[#1A1A1A] transition-colors cursor-pointer flex items-center justify-center gap-2"
+                >
+                  <Volume2 className="w-3.5 h-3.5" />
+                  <span>Audio Pronunciation</span>
+                </button>
+              </div>
             </div>
           </div>
 
@@ -429,6 +610,20 @@ export const LiveCameraStudio: React.FC<LiveCameraStudioProps> = ({
             >
               Configure Settings
             </button>
+
+            {/* Auto-Advance Checkbox directly below Configure Settings button */}
+            <label className="flex items-center justify-between p-2.5 bg-[#F8F7F3] border border-[#D1D1D1] cursor-pointer hover:border-black transition-colors mt-2">
+              <div className="flex flex-col pr-2">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-[#1A1A1A]">Auto-Advance</span>
+                <span className="text-[9px] text-[#777]">Advance to next sign on match</span>
+              </div>
+              <input
+                type="checkbox"
+                checked={settings.autoAdvance}
+                onChange={(e) => onUpdateSettings && onUpdateSettings({ ...settings, autoAdvance: e.target.checked })}
+                className="w-4 h-4 accent-black cursor-pointer shrink-0"
+              />
+            </label>
           </div>
 
         </div>
@@ -534,7 +729,9 @@ export const LiveCameraStudio: React.FC<LiveCameraStudioProps> = ({
                     }}
                   >
                     <span
-                      className="font-serif italic font-bold text-7xl tracking-tighter transition-colors duration-300"
+                      className={`font-serif italic font-bold tracking-tighter transition-colors duration-300 text-center ${
+                        currentLetter.length > 3 ? "text-2xl px-2 uppercase" : currentLetter.length > 1 ? "text-4xl" : "text-7xl"
+                      }`}
                       style={{
                         color: colorRgb,
                         textShadow: ratio > 0.5 ? `0 0 ${Math.round(ratio * 20)}px rgba(16, 185, 129, 0.6)` : "none",
@@ -547,15 +744,6 @@ export const LiveCameraStudio: React.FC<LiveCameraStudioProps> = ({
               </div>
             );
           })()}
-
-          {/* Mini Accuracy Badge Only */}
-          <div className="absolute bottom-4 right-4 pointer-events-auto z-10">
-            <div className="bg-black/80 backdrop-blur-md px-3.5 py-1.5 border border-white/15 rounded-lg text-right">
-              <span className="text-emerald-400 font-mono text-xs font-bold">
-                {detection.confidenceScore}% Accurate
-              </span>
-            </div>
-          </div>
 
           {/* Floating Controls Overlay */}
           <div className="absolute top-4 left-4 flex items-center gap-2 pointer-events-auto z-10">
@@ -582,6 +770,14 @@ export const LiveCameraStudio: React.FC<LiveCameraStudioProps> = ({
           {/* Bottom Compact Popup Guidance Text Box */}
           {showGuidancePopup && (
             <div className="absolute bottom-4 left-1/2 -translate-x-1/2 max-w-sm sm:max-w-md w-[88%] bg-black/85 backdrop-blur-md border border-white/20 text-white rounded-lg px-3.5 py-2 shadow-xl z-20 pointer-events-auto text-center animate-fadeIn">
+              <div className="flex items-center justify-center gap-1.5 mb-1">
+                <span className={`text-[9px] uppercase tracking-wider font-mono font-bold px-1.5 py-0.5 rounded border ${
+                  isCurrentTargetPhrase ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40" : "bg-white/10 text-zinc-300 border-white/20"
+                }`}>
+                  {isCurrentTargetPhrase ? "Phrase Guidance" : "Letter Guidance"}
+                </span>
+                <span className="text-xs font-bold text-white font-mono">{letterData.title}</span>
+              </div>
               <p className="text-[11px] text-zinc-200 font-light leading-snug">
                 {letterData.description}
               </p>
@@ -589,64 +785,181 @@ export const LiveCameraStudio: React.FC<LiveCameraStudioProps> = ({
           )}
         </div>
 
-        {/* Letter Cards Row */}
-        <div className="space-y-4">
-          
+        {/* Bottom Section: Grouped Sentence Tokens Strip & Specialized Guidance */}
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] uppercase tracking-[0.2em] font-bold text-[#1A1A1A]">
+                Active Target:{" "}
+                <span
+                  className={`font-mono px-2 py-0.5 border rounded font-bold ${
+                    isCurrentTargetPhrase
+                      ? "text-emerald-800 bg-emerald-50 border-emerald-300"
+                      : "text-black bg-zinc-100 border-zinc-300"
+                  }`}
+                >
+                  {currentLetter}
+                </span>
+                <span className="ml-1 text-[9px] text-[#777] font-mono">
+                  ({safeActiveIdx + 1} of {playableTokens.length})
+                </span>
+              </span>
+              <span
+                className={`text-[9px] px-2 py-0.5 font-mono uppercase tracking-wider rounded border ${
+                  isCurrentTargetPhrase
+                    ? "bg-black text-white border-black font-bold"
+                    : "bg-zinc-100 text-zinc-700 border-zinc-200"
+                }`}
+              >
+                {isCurrentTargetPhrase ? "Phrase Detection Active" : "Alphabet Detection Mode"}
+              </span>
+            </div>
+
+            {isCurrentTargetPhrase && (
+              <span className="text-[9px] text-emerald-700 font-mono hidden sm:inline-block">
+                ★ Grouped ASL Phrase
+              </span>
+            )}
+          </div>
+
+          {/* Token Carousel: Phrases are grouped into single whole-sign cards, letters into individual cards */}
           <div className="flex items-center justify-between gap-3">
             <div
               ref={lettersScrollRef}
-              className="flex gap-2 overflow-x-auto no-scrollbar py-2 scroll-smooth flex-1"
+              className="flex items-center gap-2 overflow-x-auto no-scrollbar py-2 scroll-smooth flex-1"
             >
-              {rawChars.map((char, idx) => {
-                const isLetter = /[A-Z]/.test(char);
-                if (!isLetter) {
+              {allTokens.map((token) => {
+                if (token.type === "space") {
                   return (
-                    <div key={idx} className="flex-shrink-0 w-4 h-20 flex items-center justify-center text-zinc-300">
+                    <div
+                      key={token.id}
+                      className="flex-shrink-0 w-3 h-16 flex items-center justify-center text-zinc-300 font-mono text-xs select-none"
+                    >
                       •
                     </div>
                   );
                 }
 
-                const letterTokenIndex = rawChars.slice(0, idx).filter((c) => /[A-Z]/.test(c)).length;
-                const isActive = letterTokenIndex === activeLetterIdx;
+                const tokenPlayableIdx = playableTokens.findIndex((t) => t.id === token.id);
+                const isActive = tokenPlayableIdx === safeActiveIdx;
 
+                if (token.type === "phrase") {
+                  return (
+                    <button
+                      key={token.id}
+                      data-active={isActive}
+                      onClick={() => setActiveLetterIdx(tokenPlayableIdx)}
+                      className={`flex-shrink-0 px-4 py-2 h-16 flex flex-col justify-center border text-left transition-all cursor-pointer rounded-sm ${
+                        isActive
+                          ? "bg-black text-white border-b-4 border-black shadow-lg scale-105 font-bold"
+                          : "bg-[#F8F7F3] text-[#1A1A1A] border-b-4 border-[#D1D1D1] hover:border-black"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-serif italic font-bold text-base whitespace-nowrap">
+                          {token.value}
+                        </span>
+                        <span
+                          className={`text-[8px] uppercase tracking-wider px-1.5 py-0.2 rounded font-mono ${
+                            isActive
+                              ? "bg-emerald-500/30 text-emerald-300 border border-emerald-400/40"
+                              : "bg-[#E5E5E5] text-[#555]"
+                          }`}
+                        >
+                          Phrase
+                        </span>
+                      </div>
+                      <p
+                        className={`text-[9px] truncate max-w-[140px] font-sans ${
+                          isActive ? "text-zinc-300" : "text-[#777]"
+                        }`}
+                      >
+                        {token.phraseData?.category || "Gesture"}
+                      </p>
+                    </button>
+                  );
+                }
+
+                // Individual letter
                 return (
                   <button
-                    key={`${char}-${idx}`}
+                    key={token.id}
                     data-active={isActive}
-                    onClick={() => setActiveLetterIdx(letterTokenIndex)}
-                    className={`flex-shrink-0 w-16 h-20 flex items-center justify-center text-3xl font-serif italic transition-all cursor-pointer ${
+                    onClick={() => setActiveLetterIdx(tokenPlayableIdx)}
+                    className={`flex-shrink-0 w-14 h-16 flex items-center justify-center text-2xl font-serif italic transition-all cursor-pointer rounded-sm ${
                       isActive
                         ? "bg-black text-white border-b-4 border-black shadow-lg scale-105 font-black"
                         : "bg-[#F8F7F3] text-[#1A1A1A] border-b-4 border-[#D1D1D1] hover:border-black"
                     }`}
                   >
-                    {char}
+                    {token.value}
                   </button>
                 );
               })}
             </div>
 
+            {/* Navigation arrows */}
             <div className="flex items-center gap-1 shrink-0 ml-2">
               <button
                 onClick={() => setActiveLetterIdx((prev) => Math.max(0, prev - 1))}
-                disabled={activeLetterIdx <= 0}
-                className="p-2.5 border border-[#D1D1D1] hover:bg-black hover:text-white disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-black cursor-pointer transition-colors"
-                title="Previous letter"
+                disabled={safeActiveIdx <= 0}
+                className="p-2 border border-[#D1D1D1] hover:bg-black hover:text-white disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-black cursor-pointer transition-colors"
+                title="Previous sign"
               >
                 <ChevronLeft className="w-4 h-4" />
               </button>
               <button
-                onClick={() => setActiveLetterIdx((prev) => Math.min(tokens.length - 1, prev + 1))}
-                disabled={activeLetterIdx >= tokens.length - 1}
-                className="p-2.5 border border-[#D1D1D1] hover:bg-black hover:text-white disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-black cursor-pointer transition-colors"
-                title="Next letter"
+                onClick={() => setActiveLetterIdx((prev) => Math.min(playableTokens.length - 1, prev + 1))}
+                disabled={safeActiveIdx >= playableTokens.length - 1}
+                className="p-2 border border-[#D1D1D1] hover:bg-black hover:text-white disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-black cursor-pointer transition-colors"
+                title="Next sign"
               >
                 <ChevronRight className="w-4 h-4" />
               </button>
             </div>
           </div>
 
+          {/* Active Target Guidance Box (Specialized Phrase Guidance vs Letter Guidance) */}
+          {isCurrentTargetPhrase ? (
+            <div className="p-3.5 bg-[#F8F7F3] border border-[#D1D1D1] space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] uppercase tracking-[0.2em] font-bold text-[#1A1A1A] flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                  <span>Phrase Guidance — {letterData.title}</span>
+                </span>
+                <span className="text-[9px] font-mono text-emerald-900 bg-emerald-100 border border-emerald-300 px-2 py-0.5 rounded font-bold uppercase tracking-wider">
+                  Whole-Gesture Target
+                </span>
+              </div>
+              <p className="text-xs text-[#222] leading-relaxed">
+                <strong className="font-semibold text-black">Movement & Form: </strong>
+                {letterData.description}
+              </p>
+              <p className="text-[11px] text-[#555] leading-relaxed italic border-t border-[#E5E5E5] pt-1.5">
+                <strong className="font-medium text-[#333] not-italic">Posture Tip: </strong>
+                {letterData.tip}
+              </p>
+            </div>
+          ) : (
+            <div className="p-3.5 bg-[#F8F7F3] border border-[#D1D1D1] space-y-1">
+              <div className="flex justify-between items-center">
+                <span className="font-bold text-black uppercase tracking-wider text-[10px]">
+                  Letter Guidance — {letterData.title}
+                </span>
+                <span className="text-[9px] font-mono text-[#777] bg-zinc-100 border border-zinc-300 px-2 py-0.5 rounded">
+                  {letterData.difficulty}
+                </span>
+              </div>
+              <p className="text-xs text-[#222] leading-relaxed">
+                <strong className="font-semibold text-black">Forming Handshape: </strong>
+                {letterData.description}
+              </p>
+              <p className="text-[11px] text-[#555] leading-relaxed italic border-t border-[#E5E5E5] pt-1.5">
+                <strong className="font-medium text-[#333] not-italic">Posture Tip: </strong>
+                {letterData.tip}
+              </p>
+            </div>
+          )}
         </div>
 
       </section>

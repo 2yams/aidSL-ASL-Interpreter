@@ -53,9 +53,11 @@ export const SamplingSettingsModal: React.FC<SamplingSettingsModalProps> = ({
                 <Key className="w-3.5 h-3.5 text-black" />
                 <span>Gemini API Key</span>
               </label>
-              <span className="text-[10px] bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded font-bold uppercase">
-                {settings.geminiApiKey ? "Custom Key Saved" : "Sandbox Proxy Default"}
-              </span>
+              {settings.geminiApiKey && (
+                <span className="text-[10px] bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded font-bold uppercase">
+                  Custom Key Saved
+                </span>
+              )}
             </div>
 
             <div className="relative">
@@ -63,7 +65,7 @@ export const SamplingSettingsModal: React.FC<SamplingSettingsModalProps> = ({
                 type={showKey ? "text" : "password"}
                 value={settings.geminiApiKey || ""}
                 onChange={(e) => handleChange("geminiApiKey", e.target.value)}
-                placeholder="AIzaSy... (Leave empty to use Sandbox proxy)"
+                placeholder="AIzaSy..."
                 className="w-full bg-white border border-[#D1D1D1] p-2.5 pr-10 text-xs text-[#1A1A1A] font-mono focus:outline-none focus:border-black"
               />
               <button
@@ -75,11 +77,6 @@ export const SamplingSettingsModal: React.FC<SamplingSettingsModalProps> = ({
                 {showKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
             </div>
-
-            <p className="text-[10px] text-[#666] leading-relaxed pt-1">
-              <Sparkles className="w-3 h-3 text-amber-600 inline mr-1" />
-              In preview sandbox, requests route through the built-in Gemini server proxy (`/api/analyze-frame`). Add your personal key for standalone demo deployments.
-            </p>
           </div>
 
           {/* Confidence Slider */}
@@ -92,7 +89,7 @@ export const SamplingSettingsModal: React.FC<SamplingSettingsModalProps> = ({
               type="range"
               min="50"
               max="95"
-              step="5"
+              step="1"
               value={settings.confidenceThreshold}
               onChange={(e) => handleChange("confidenceThreshold", Number(e.target.value))}
               className="w-full accent-black cursor-pointer"

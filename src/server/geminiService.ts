@@ -42,35 +42,127 @@ Do NOT use markdown headers or fluff. Focus on exact finger position (e.g. "Exte
 }
 
 export async function chatWithMentor(messages: { role: "user" | "model"; text: string }[], customApiKey?: string) {
+  const lastUserMsg = messages.filter((m) => m.role === "user").slice(-1)[0]?.text || "";
+  
+  // Filter out any leading model messages so the sequence starts with 'user'
+  const validMessages = [];
+  let userSeen = false;
+  for (const m of messages) {
+    if (m.role === "user") userSeen = true;
+    if (userSeen) {
+      validMessages.push({
+        role: m.role,
+        parts: [{ text: m.text }],
+      });
+    }
+  }
+
   const aiClient = getAiClient(customApiKey);
-  if (!aiClient) {
-    return "I am currently running in local offline mode. Please ensure GEMINI_API_KEY is configured in Settings to unlock full AI Sign Mentorship.";
+  if (aiClient) {
+    try {
+      const response = await aiClient.models.generateContent({
+        model: "gemini-3.7-flash",
+        contents: validMessages.length > 0 ? validMessages : [{ role: "user", parts: [{ text: lastUserMsg || "Hello ASL Mentor" }] }],
+        config: {
+          systemInstruction: `You are 'aidSL Mentor', an expert, encouraging, and highly articulate AI Sign Language Master & Deaf Culture Guide.
+Your mission is to help users learn ASL (American Sign Language), fingerspelling, grammar structure (Topic-Comment, facial non-manual markers), and Deaf culture with precision and warmth.
+Always format your responses with clean Markdown (using bold, bullet points, and numbered steps). Keep instructions concrete, clear, and actionable.`,
+          temperature: 0.3,
+        },
+      });
+
+      if (response.text?.trim()) {
+        return response.text.trim();
+      }
+    } catch (err) {
+      console.error("Gemini API call error in Mentor Chat:", err);
+    }
   }
 
-  try {
-    const formattedHistory = messages.slice(0, -1).map((m) => ({
-      role: m.role,
-      parts: [{ text: m.text }],
-    }));
+  return generateOfflineMentorResponse(lastUserMsg);
+}
 
-    const lastMessage = messages[messages.length - 1].text;
+function generateOfflineMentorResponse(query: string): string {
+  const q = query.toLowerCase();
 
-    const chat = aiClient.chats.create({
-      model: "gemini-3.7-flash",
-      history: formattedHistory,
-      config: {
-        systemInstruction: `You are 'aidSL Mentor', an elegant, encouraging, and highly articulate AI Sign Language Master & Deaf Culture Guide.
-Your mission is to help users learn ASL (American Sign Language), fingerspelling, grammar structure, non-manual facial expressions, and Deaf culture with precision and warmth.
-Keep responses concise, well-structured, visually readable, and actionable. When appropriate, offer practice drills or hand posture tips.`,
-      },
-    });
+  if (q.includes("nice to meet you") || q.includes("meet")) {
+    return `### How to Sign **"Nice to Meet You"** in ASL:
 
-    const response = await chat.sendMessage({ message: lastMessage });
-    return response.text || "I'm ready to assist you with learning sign language. What gesture or rule would you like to explore?";
-  } catch (err) {
-    console.error("Error in Mentor Chat:", err);
-    return "I encountered a momentary connection hiccup. Please try asking your question again.";
+This common greeting is composed of 3 distinct signs:
+
+1. **NICE**: 
+   - Place your non-dominant hand palm up horizontally in front of your chest.
+   - Slide your open flat dominant hand smoothly across the top of your non-dominant palm from wrist to fingertips.
+2. **MEET**:
+   - Hold both hands with index fingers pointing up (representing two people).
+   - Bring your hands together until the knuckles lightly meet in the center.
+3. **YOU**:
+   - Point your dominant index finger gently outward toward the person you are speaking with.
+
+> **Pro-Tip**: Smile warmly and make friendly eye contact—facial expression is an essential grammatical component in ASL!`;
   }
+
+  if (q.includes("topic") || q.includes("grammar") || q.includes("structure") || q.includes("sentence")) {
+    return `### ASL Grammar Structure: **Topic-Comment**
+
+Unlike English which primarily follows **Subject-Verb-Object (SVO)**, ASL uses **Topic-Comment** (and **Time-Topic-Comment**) structure:
+
+- **Time Marker First**: In ASL, time establishes the timeline right away (*YESTERDAY*, *TOMORROW*, *NOW*).
+- **The Topic**: What you are discussing is introduced first with slightly raised eyebrows and a slight head tilt.
+- **The Comment**: What you want to say about that topic follows with neutral or specific emotional non-manual markers.
+
+#### Example Comparison:
+- **English**: *"I bought a red car yesterday."*
+- **ASL Structure**: **YESTERDAY** *(Time)* + **CAR RED** *(Topic)* + **ME BUY** *(Comment)*.
+
+This visual syntax prioritizes establishing the visual scene before describing actions!`;
+  }
+
+  if (q.includes("drill") || q.includes("practice") || q.includes("exercise") || q.includes("fingerspelling")) {
+    return `### 3-Letter Fingerspelling Drill
+
+Here is a progressive practice drill to build muscle memory and fluid transitions:
+
+1. **Set 1: Open to Closed**
+   - **B** *(Flat open hand)* $\\rightarrow$ **A** *(Compact fist)* $\\rightarrow$ **T** *(Thumb under index)*
+   - *Tip: Focus on snapping the fingers into the palm smoothly.*
+
+2. **Set 2: Lateral & Vertical Extension**
+   - **L** *(Right angle)* $\\rightarrow$ **I** *(Pinky up)* $\\rightarrow$ **P** *(Downward K)*
+   - *Tip: Keep your wrist steady; avoid bouncing your arm.*
+
+3. **Set 3: Everyday Word Drill**
+   - **S • U • N**
+   - **C • A • T**
+   - **A • S • L**
+
+Try signing each sequence in the **Learn** camera studio!`;
+  }
+
+  if (q.includes("non-manual") || q.includes("facial") || q.includes("expression") || q.includes("eyebrow")) {
+    return `### Non-Manual Markers (NMM) in ASL
+
+In American Sign Language, **facial expressions are not optional decorations—they are fundamental grammar!**
+
+- **Wh-Questions** (*Who, What, Where, When, Why, How*):
+  - **Action**: Furrow your eyebrows downward and tilt your head slightly forward.
+- **Yes/No Questions**:
+  - **Action**: Raise your eyebrows upward and lean forward slightly.
+- **Negation (Not / Never)**:
+  - **Action**: Shake head gently side to side while signing the verb.
+- **Mouth Morphemes**:
+  - Shapes like *"cha"* (for large objects), *"oo"* (for small/delicate objects), or *"mm"* (for routine/easy tasks) modify adjectives and adverbs.`;
+  }
+
+  return `### ASL Mentorship Guidance
+
+I am here to guide your American Sign Language journey! You can explore:
+
+- **Handshape Mechanics**: Ask about any letter (**A** through **Z**) or phrase (such as **"Thank You"**, **"Please"**, **"I Love You"**).
+- **Spatial Grammar**: Learn how signing space, indexing, and directionality work.
+- **Deaf Culture & Etiquette**: Discover visual attention-getting strategies and historical insights.
+
+Try asking: *"How do I sign 'Thank you'?"* or *"Explain the difference between letter U and letter V."*`;
 }
 
 export async function analyzeFrameGesture(base64Image: string, targetLetter: string, customApiKey?: string) {

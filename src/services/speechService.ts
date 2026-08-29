@@ -6,31 +6,44 @@ export function speakWithJapaneseAccent(textToSpeak: string, rate = 0.95) {
 
   window.speechSynthesis.cancel();
 
-  const utterance = new SpeechSynthesisUtterance(textToSpeak);
-  utterance.rate = rate;
+  const performSpeak = () => {
+    const utterance = new SpeechSynthesisUtterance(textToSpeak);
+    utterance.rate = rate;
+    utterance.pitch = 1.05;
+
+    const voices = window.speechSynthesis.getVoices();
+
+    // Look for Japanese voice (e.g. ja-JP, ja_JP, Kyoko, Otoya, Nanami, Google 日本語, etc.)
+    const jaVoice = voices.find(
+      (v) =>
+        v.lang.toLowerCase().startsWith("ja") ||
+        v.lang.toLowerCase().includes("jp") ||
+        v.name.toLowerCase().includes("japanese") ||
+        v.name.toLowerCase().includes("kyoko") ||
+        v.name.toLowerCase().includes("otoya") ||
+        v.name.toLowerCase().includes("nanami") ||
+        v.name.toLowerCase().includes("meimei")
+    );
+
+    if (jaVoice) {
+      utterance.voice = jaVoice;
+      utterance.lang = jaVoice.lang || "ja-JP";
+    } else {
+      utterance.lang = "ja-JP";
+    }
+
+    window.speechSynthesis.speak(utterance);
+  };
 
   const voices = window.speechSynthesis.getVoices();
-
-  // 1. Look for Japanese voice (e.g. ja-JP, Kyoko, Otoya, Nanami, Google 日本語)
-  // When an English string is spoken with a ja-JP voice, the browser's engine applies a distinct Japanese accent / phonetics.
-  const jaVoice = voices.find(
-    (v) =>
-      v.lang.toLowerCase().startsWith("ja") ||
-      v.lang.toLowerCase().includes("jp") ||
-      v.name.toLowerCase().includes("japanese") ||
-      v.name.toLowerCase().includes("kyoko") ||
-      v.name.toLowerCase().includes("otoya") ||
-      v.name.toLowerCase().includes("nanami") ||
-      v.name.toLowerCase().includes("meimei")
-  );
-
-  if (jaVoice) {
-    utterance.voice = jaVoice;
-    utterance.lang = "ja-JP";
+  if (voices.length > 0) {
+    performSpeak();
   } else {
-    // If no Japanese voice is installed, fall back to default but set lang hint
-    utterance.lang = "ja-JP";
+    window.speechSynthesis.onvoiceschanged = () => {
+      performSpeak();
+    };
+    // Fallback if event doesn't fire
+    setTimeout(performSpeak, 100);
   }
-
-  window.speechSynthesis.speak(utterance);
 }
+

@@ -161,24 +161,16 @@ export const RealtimeTranslator: React.FC<RealtimeTranslatorProps> = ({ settings
               let finalPrediction = "hello";
               let finalScore = 0;
 
-              if (phraseResult.isPhrase && phraseResult.confidence >= 85) {
+              if (phraseResult.isPhrase && phraseResult.confidence >= 75) {
                 finalPrediction = phraseResult.phrase;
                 finalScore = phraseResult.confidence;
                 // Automatically vocalize detected phrase aloud without spamming
                 speakDebounced(phraseResult.phrase);
               } else {
-                // Check alphabet letters
-                let bestChar = "A";
-                let maxScore = 0;
-                for (const cand of ALPHABET_ALL) {
-                  const clf = classifyHandGesture(detectedLandmarks, cand);
-                  if (clf.confidenceScore > maxScore) {
-                    maxScore = clf.confidenceScore;
-                    bestChar = cand;
-                  }
-                }
-                finalPrediction = bestChar;
-                finalScore = maxScore;
+                // Classify detected hand posture across letters
+                const clf = classifyHandGesture(detectedLandmarks, "");
+                finalPrediction = clf.predictedLetter;
+                finalScore = clf.confidenceScore;
               }
 
               // 2. Draw Skeleton lines & joints inside hand
@@ -252,6 +244,18 @@ export const RealtimeTranslator: React.FC<RealtimeTranslatorProps> = ({ settings
             const simIdx = Math.floor(Date.now() / 2500) % simItems.length;
             const simTarget = simItems[simIdx];
             const simLandmarks = generateSyntheticLandmarks(simTarget.toUpperCase());
+            const phraseRes = detectSignLanguagePhrase(simLandmarks);
+            let simPred = simTarget;
+            let simConf = 88.5;
+
+            if (phraseRes.isPhrase) {
+              simPred = phraseRes.phrase;
+              simConf = phraseRes.confidence;
+            } else {
+              const clf = classifyHandGesture(simLandmarks, simTarget);
+              simPred = clf.predictedLetter;
+              simConf = clf.confidenceScore;
+            }
 
             if (settings.showSkeleton) {
               drawHandLandmarksOnCanvas(ctx, simLandmarks, canvas.width, canvas.height, false, "#FFFFFF");
@@ -262,17 +266,17 @@ export const RealtimeTranslator: React.FC<RealtimeTranslatorProps> = ({ settings
               simLandmarks,
               canvas.width,
               canvas.height,
-              simTarget,
-              100,
+              simPred,
+              simConf,
               false,
               "#EF4444"
             );
 
-            setConfidence(100);
-            setCurrentPrediction(simTarget);
+            setConfidence(simConf);
+            setCurrentPrediction(simPred);
 
-            if (simTarget.length > 1) {
-              speakDebounced(simTarget);
+            if (simPred.length > 1) {
+              speakDebounced(simPred);
             }
 
             if (autoAddMode) {

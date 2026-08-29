@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
 import { Send, Sparkles, User, Bot } from "lucide-react";
+import Markdown from "react-markdown";
 import { ChatMessage, SamplingSettings } from "../types/sign";
 
 interface AiMentorChatProps {
@@ -141,7 +142,13 @@ export const AiMentorChat: React.FC<AiMentorChatProps> = ({ settings }) => {
                 <span>{msg.timestamp}</span>
               </div>
 
-              <div className="whitespace-pre-wrap font-sans">{msg.text}</div>
+              <div className={`markdown-body font-sans text-sm leading-relaxed space-y-2 [&_p]:mb-2 [&_p:last-child]:mb-0 [&_strong]:font-bold [&_em]:italic [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:my-2 [&_ol]:list-decimal [&_ol]:pl-5 [&_ol]:my-2 [&_li]:mb-1 [&_code]:font-mono [&_code]:text-xs [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:rounded ${
+                msg.role === "user" 
+                  ? "[&_strong]:text-white [&_code]:bg-white/20 [&_code]:text-white" 
+                  : "[&_strong]:text-black [&_code]:bg-black/10 [&_code]:text-black"
+              }`}>
+                <Markdown>{msg.text}</Markdown>
+              </div>
             </div>
           </div>
         ))}

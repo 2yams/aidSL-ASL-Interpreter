@@ -14,11 +14,11 @@ app.use(express.json({ limit: "10mb" }));
 // API Endpoints
 app.post("/api/subtext", async (req, res) => {
   try {
-    const { letter, wordContext } = req.body || {};
+    const { letter, wordContext, apiKey } = req.body || {};
     if (!letter) {
       return res.status(400).json({ error: "Letter is required" });
     }
-    const subtext = await generateSignSubtext(letter, wordContext);
+    const subtext = await generateSignSubtext(letter, wordContext, apiKey);
     res.json({ subtext });
   } catch (err) {
     res.status(500).json({ error: "Failed to generate subtext" });
@@ -27,11 +27,11 @@ app.post("/api/subtext", async (req, res) => {
 
 app.post("/api/chat", async (req, res) => {
   try {
-    const { messages } = req.body || {};
+    const { messages, apiKey } = req.body || {};
     if (!Array.isArray(messages) || messages.length === 0) {
       return res.status(400).json({ error: "Messages array required" });
     }
-    const reply = await chatWithMentor(messages);
+    const reply = await chatWithMentor(messages, apiKey);
     res.json({ reply });
   } catch (err) {
     res.status(500).json({ error: "Failed to process mentor chat" });
@@ -40,11 +40,11 @@ app.post("/api/chat", async (req, res) => {
 
 app.post("/api/analyze-frame", async (req, res) => {
   try {
-    const { base64Image, targetLetter } = req.body || {};
+    const { base64Image, targetLetter, apiKey } = req.body || {};
     if (!base64Image || !targetLetter) {
       return res.status(400).json({ error: "Missing image or target letter" });
     }
-    const result = await analyzeFrameGesture(base64Image, targetLetter);
+    const result = await analyzeFrameGesture(base64Image, targetLetter, apiKey);
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: "Failed to analyze frame" });

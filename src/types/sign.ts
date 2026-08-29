@@ -59,7 +59,7 @@ export interface ChatMessage {
 export interface ASLPhrase {
   id: string;
   phrase: string;
-  category: "Greetings" | "Essentials" | "Polite" | "Emergency" | "Questions";
+  category: "Greetings" | "Essentials" | "Polite" | "Emergency" | "Questions" | "Expressions";
   translation: string;
   explanation: string;
   letters: string[];
