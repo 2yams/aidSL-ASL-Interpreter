@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from "react";
 import { Send, Sparkles, User, Bot } from "lucide-react";
 import Markdown from "react-markdown";
 import { ChatMessage, SamplingSettings } from "../types/sign";
+import { sendMentorMessage } from "../services/geminiClient";
 
 interface AiMentorChatProps {
   onPracticeLetter?: (letter: string) => void;
@@ -12,7 +13,7 @@ const INITIAL_MESSAGES: ChatMessage[] = [
   {
     id: "m1",
     role: "model",
-    text: "Welcome to aidSL Mentor. I am your AI Sign Language Coach & Deaf Culture Guide powered by Gemini 3.7. Ask me how to form any ASL sign, fingerspelling techniques, grammar rules, or request a practice drill!",
+    text: "Welcome to aidSL Mentor. I am your AI Sign Language Coach & Deaf Culture Guide powered by Gemini 3.8. Ask me how to form any ASL sign, fingerspelling techniques, grammar rules, or request a practice drill!",
     timestamp: "Just now",
   },
 ];
@@ -56,37 +57,23 @@ export const AiMentorChat: React.FC<AiMentorChatProps> = ({ settings }) => {
         text: m.text,
       }));
 
-      const res = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          messages: apiMessages,
-          apiKey: settings?.geminiApiKey?.trim() || undefined,
-        }),
-      });
-
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.error || `Server responded with status ${res.status}`);
-      }
-
-      const data = await res.json();
+      const reply = await sendMentorMessage(apiMessages, settings?.geminiApiKey);
 
       const modelMsg: ChatMessage = {
         id: `m-${Date.now()}`,
         role: "model",
-        text: data.reply || "I am ready to help you practice sign language.",
+        text: reply,
         timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
       };
 
       setMessages((prev) => [...prev, modelMsg]);
     } catch (err: any) {
-      console.error(err);
+      console.error("Mentor chat error:", err);
       const errText = err?.message || "";
-      let feedback = "I encountered a minor connection issue. Please try asking your question again.";
+      let feedback = errText || "I encountered a minor connection issue. Please try asking your question again.";
       if (errText.includes("429") || errText.includes("quota") || errText.includes("RESOURCE_EXHAUSTED")) {
         feedback = "Gemini API daily quota reached for this key. Please check your AI Studio quota or try another key.";
-      } else if (errText.includes("API key not valid") || errText.includes("403") || errText.includes("INVALID_ARGUMENT")) {
+      } else if (errText.includes("API key not valid") || errText.includes("403") || errText.includes("INVALID_ARGUMENT") || errText.includes("invalid")) {
         feedback = "The Gemini API key provided appears invalid. Please check your key in the Settings panel.";
       }
       setMessages((prev) => [

@@ -4,6 +4,7 @@ import { ASL_ALPHABET, ASL_PHRASES } from "../data/aslAlphabet";
 import { SamplingSettings, DetectionResult, Point3D } from "../types/sign";
 import { speakWithAmericanAccent } from "../services/speechService";
 import { initHandLandmarker, classifyHandGesture, drawHandLandmarksOnCanvas, generateSyntheticLandmarks, drawHandBoundingBoxWithLabel } from "../services/handDetector";
+import { fetchSignSubtext, fetchFrameAnalysis } from "../services/geminiClient";
 import confetti from "canvas-confetti";
 
 interface LiveCameraStudioProps {
@@ -182,23 +183,14 @@ export const LiveCameraStudio: React.FC<LiveCameraStudioProps> = ({
   const fetchSubtext = useCallback(async (letter: string) => {
     setIsLoadingSubtext(true);
     try {
-      const res = await fetch("/api/subtext", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ letter, wordContext: inputText, apiKey: settings.geminiApiKey?.trim() || undefined }),
-      });
-      const data = await res.json();
-      if (data.subtext) {
-        setSubtext(data.subtext);
-      } else {
-        setSubtext(letterData.geminiSubtext);
-      }
+      const generated = await fetchSignSubtext(letter, inputText, settings.geminiApiKey);
+      setSubtext(generated || letterData.geminiSubtext);
     } catch {
       setSubtext(letterData.geminiSubtext);
     } finally {
       setIsLoadingSubtext(false);
     }
-  }, [inputText, letterData.geminiSubtext]);
+  }, [inputText, letterData.geminiSubtext, settings.geminiApiKey]);
 
   useEffect(() => {
     fetchSubtext(currentLetter);
@@ -417,12 +409,7 @@ export const LiveCameraStudio: React.FC<LiveCameraStudioProps> = ({
       const base64Image = canvas.toDataURL("image/jpeg", 0.8);
 
       try {
-        const res = await fetch("/api/analyze-frame", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ base64Image, targetLetter: currentLetter, apiKey: settings.geminiApiKey?.trim() || undefined }),
-        });
-        const data = await res.json();
+        const data = await fetchFrameAnalysis(base64Image, currentLetter, settings.geminiApiKey);
         setDetection((prev) => ({
           ...prev,
           confidenceScore: data.matchScore || prev.confidenceScore,
