@@ -1,15 +1,10 @@
 import { GoogleGenAI } from "@google/genai";
 
 function getAiClient(customApiKey?: string) {
-  const keyToUse = customApiKey || process.env.GEMINI_API_KEY;
+  const keyToUse = customApiKey?.trim() || process.env.GEMINI_API_KEY?.trim();
   if (!keyToUse) return null;
   return new GoogleGenAI({
     apiKey: keyToUse,
-    httpOptions: {
-      headers: {
-        "User-Agent": "aistudio-build",
-      },
-    },
   });
 }
 
@@ -19,24 +14,30 @@ export async function generateSignSubtext(letter: string, wordContext?: string, 
     return `Form the ASL sign for '${letter}'. Align fingers precisely and maintain clear camera visibility.`;
   }
 
-  try {
-    const prompt = `You are an expert ASL (American Sign Language) master instructor for the app 'aidSL'. 
+  const prompt = `You are an expert ASL (American Sign Language) master instructor for the app 'aidSL'. 
 Provide a concise, extremely clear, 1 to 2 sentence physical instruction on how to position hand and fingers to form the ASL letter '${letter}'${wordContext ? ` within the word '${wordContext}'` : ''}.
 Do NOT use markdown headers or fluff. Focus on exact finger position (e.g. "Extend your index finger straight up, curl other fingers into palm with thumb resting over them.").`;
 
-    const response = await aiClient.models.generateContent({
-      model: "gemini-3.7-flash",
-      contents: prompt,
-      config: {
-        temperature: 0.2,
-      },
-    });
+  const candidateModels = ["gemini-3.8-flash", "gemini-flash-latest", "gemini-3.1-flash-lite"];
+  for (const modelName of candidateModels) {
+    try {
+      const response = await aiClient.models.generateContent({
+        model: modelName,
+        contents: prompt,
+        config: {
+          temperature: 0.2,
+        },
+      });
 
-    return response.text?.trim() || `Position your hand clearly in front of the frame to sign '${letter}'.`;
-  } catch (err) {
-    console.error("Error generating sign subtext:", err);
-    return `Extend and position your hand to form the letter '${letter}'. Ensure good lighting and clear camera view.`;
+      if (response.text?.trim()) {
+        return response.text.trim();
+      }
+    } catch (err) {
+      console.warn(`Error generating sign subtext with ${modelName}:`, err);
+    }
   }
+
+  return `Extend and position your hand to form the letter '${letter}'. Ensure good lighting and clear camera view.`;
 }
 
 export async function chatWithMentor(messages: { role: "user" | "model"; text: string }[], customApiKey?: string) {
@@ -57,23 +58,26 @@ export async function chatWithMentor(messages: { role: "user" | "model"; text: s
 
   const aiClient = getAiClient(customApiKey);
   if (aiClient) {
-    try {
-      const response = await aiClient.models.generateContent({
-        model: "gemini-3.7-flash",
-        contents: validMessages.length > 0 ? validMessages : [{ role: "user", parts: [{ text: lastUserMsg || "Hello ASL Mentor" }] }],
-        config: {
-          systemInstruction: `You are 'aidSL Mentor', an expert, encouraging, and highly articulate AI Sign Language Master & Deaf Culture Guide.
+    const candidateModels = ["gemini-3.8-flash", "gemini-flash-latest", "gemini-3.1-flash-lite"];
+    for (const modelName of candidateModels) {
+      try {
+        const response = await aiClient.models.generateContent({
+          model: modelName,
+          contents: validMessages.length > 0 ? validMessages : [{ role: "user", parts: [{ text: lastUserMsg || "Hello ASL Mentor" }] }],
+          config: {
+            systemInstruction: `You are 'aidSL Mentor', an expert, encouraging, and highly articulate AI Sign Language Master & Deaf Culture Guide.
 Your mission is to help users learn ASL (American Sign Language), fingerspelling, grammar structure (Topic-Comment, facial non-manual markers), and Deaf culture with precision and warmth.
 Always format your responses with clean Markdown (using bold, bullet points, and numbered steps). Keep instructions concrete, clear, and actionable.`,
-          temperature: 0.3,
-        },
-      });
+            temperature: 0.3,
+          },
+        });
 
-      if (response.text?.trim()) {
-        return response.text.trim();
+        if (response.text?.trim()) {
+          return response.text.trim();
+        }
+      } catch (err: any) {
+        console.warn(`Mentor Chat model ${modelName} attempt failed:`, err?.message || err);
       }
-    } catch (err) {
-      console.error("Gemini API call error in Mentor Chat:", err);
     }
   }
 
@@ -186,32 +190,39 @@ Return a valid JSON object with the following structure (no markdown code fences
   "feedback": string (short encouraging comment on hand posture)
 }`;
 
-    const response = await aiClient.models.generateContent({
-      model: "gemini-3.7-flash",
-      contents: {
-        parts: [
-          {
-            inlineData: {
-              mimeType: "image/jpeg",
-              data: cleanBase64,
-            },
+    const candidateModels = ["gemini-3.8-flash", "gemini-flash-latest", "gemini-3.1-flash-lite"];
+    for (const modelName of candidateModels) {
+      try {
+        const response = await aiClient.models.generateContent({
+          model: modelName,
+          contents: {
+            parts: [
+              {
+                inlineData: {
+                  mimeType: "image/jpeg",
+                  data: cleanBase64,
+                },
+              },
+              { text: prompt },
+            ],
           },
-          { text: prompt },
-        ],
-      },
-      config: {
-        responseMimeType: "application/json",
-      },
-    });
+          config: {
+            responseMimeType: "application/json",
+          },
+        });
 
-    const rawText = response.text || "{}";
-    const parsed = JSON.parse(rawText);
-    return {
-      matchScore: typeof parsed.matchScore === "number" ? parsed.matchScore : 80,
-      isMatch: Boolean(parsed.isMatch),
-      subtext: parsed.subtext || `Keep hand steady for letter '${targetLetter}'.`,
-      feedback: parsed.feedback || "Good hand placement detected.",
-    };
+        const rawText = response.text || "{}";
+        const parsed = JSON.parse(rawText);
+        return {
+          matchScore: typeof parsed.matchScore === "number" ? parsed.matchScore : 80,
+          isMatch: Boolean(parsed.isMatch),
+          subtext: parsed.subtext || `Keep hand steady for letter '${targetLetter}'.`,
+          feedback: parsed.feedback || "Good hand placement detected.",
+        };
+      } catch (innerErr) {
+        console.warn(`Frame analysis with ${modelName} failed:`, innerErr);
+      }
+    }
   } catch (err) {
     console.error("Error analyzing frame gesture:", err);
     return {

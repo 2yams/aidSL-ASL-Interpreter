@@ -61,9 +61,14 @@ export const AiMentorChat: React.FC<AiMentorChatProps> = ({ settings }) => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           messages: apiMessages,
-          apiKey: settings?.geminiApiKey || undefined,
+          apiKey: settings?.geminiApiKey?.trim() || undefined,
         }),
       });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || `Server responded with status ${res.status}`);
+      }
 
       const data = await res.json();
 
@@ -75,14 +80,21 @@ export const AiMentorChat: React.FC<AiMentorChatProps> = ({ settings }) => {
       };
 
       setMessages((prev) => [...prev, modelMsg]);
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
+      const errText = err?.message || "";
+      let feedback = "I encountered a minor connection issue. Please try asking your question again.";
+      if (errText.includes("429") || errText.includes("quota") || errText.includes("RESOURCE_EXHAUSTED")) {
+        feedback = "Gemini API daily quota reached for this key. Please check your AI Studio quota or try another key.";
+      } else if (errText.includes("API key not valid") || errText.includes("403") || errText.includes("INVALID_ARGUMENT")) {
+        feedback = "The Gemini API key provided appears invalid. Please check your key in the Settings panel.";
+      }
       setMessages((prev) => [
         ...prev,
         {
           id: `err-${Date.now()}`,
           role: "model",
-          text: "I encountered a minor connection issue. Please try asking your question again.",
+          text: feedback,
           timestamp: "Just now",
         },
       ]);
@@ -104,7 +116,7 @@ export const AiMentorChat: React.FC<AiMentorChatProps> = ({ settings }) => {
             <h2 className="font-serif italic text-2xl font-bold text-[#1A1A1A] flex items-center gap-3">
               <span>aidSL AI Mentor</span>
               <span className="text-[10px] font-mono font-bold text-black border border-black px-2 py-0.5 uppercase">
-                Gemini 3.7
+                Gemini 3.8
               </span>
             </h2>
             <p className="text-xs font-mono text-[#888]">

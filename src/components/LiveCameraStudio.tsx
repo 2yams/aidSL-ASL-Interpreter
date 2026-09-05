@@ -185,7 +185,7 @@ export const LiveCameraStudio: React.FC<LiveCameraStudioProps> = ({
       const res = await fetch("/api/subtext", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ letter, wordContext: inputText, apiKey: settings.geminiApiKey }),
+        body: JSON.stringify({ letter, wordContext: inputText, apiKey: settings.geminiApiKey?.trim() || undefined }),
       });
       const data = await res.json();
       if (data.subtext) {
@@ -420,7 +420,7 @@ export const LiveCameraStudio: React.FC<LiveCameraStudioProps> = ({
         const res = await fetch("/api/analyze-frame", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ base64Image, targetLetter: currentLetter, apiKey: settings.geminiApiKey }),
+          body: JSON.stringify({ base64Image, targetLetter: currentLetter, apiKey: settings.geminiApiKey?.trim() || undefined }),
         });
         const data = await res.json();
         setDetection((prev) => ({
