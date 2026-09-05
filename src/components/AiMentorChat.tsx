@@ -59,7 +59,10 @@ export const AiMentorChat: React.FC<AiMentorChatProps> = ({ settings }) => {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: apiMessages, apiKey: settings?.geminiApiKey }),
+        body: JSON.stringify({
+          messages: apiMessages,
+          apiKey: settings?.geminiApiKey || undefined,
+        }),
       });
 
       const data = await res.json();

@@ -1,5 +1,5 @@
-// Speech synthesis helper with Japanese-accented English preference
-export function speakWithJapaneseAccent(textToSpeak: string, rate = 0.95) {
+// Speech synthesis helper with American English accent preference
+export function speakWithAmericanAccent(textToSpeak: string, rate = 0.95) {
   if (!textToSpeak || typeof window === "undefined" || !("speechSynthesis" in window)) {
     return;
   }
@@ -9,27 +9,35 @@ export function speakWithJapaneseAccent(textToSpeak: string, rate = 0.95) {
   const performSpeak = () => {
     const utterance = new SpeechSynthesisUtterance(textToSpeak);
     utterance.rate = rate;
-    utterance.pitch = 1.05;
+    utterance.pitch = 1.0;
 
     const voices = window.speechSynthesis.getVoices();
 
-    // Look for Japanese voice (e.g. ja-JP, ja_JP, Kyoko, Otoya, Nanami, Google 日本語, etc.)
-    const jaVoice = voices.find(
-      (v) =>
-        v.lang.toLowerCase().startsWith("ja") ||
-        v.lang.toLowerCase().includes("jp") ||
-        v.name.toLowerCase().includes("japanese") ||
-        v.name.toLowerCase().includes("kyoko") ||
-        v.name.toLowerCase().includes("otoya") ||
-        v.name.toLowerCase().includes("nanami") ||
-        v.name.toLowerCase().includes("meimei")
-    );
+    // Prioritize standard American / US English voices (e.g. en-US, Samantha, Google US English, Alex, Jenny, Guy, etc.)
+    const usVoice =
+      voices.find(
+        (v) =>
+          v.lang.toLowerCase() === "en-us" ||
+          v.lang.toLowerCase().replace("_", "-") === "en-us"
+      ) ||
+      voices.find(
+        (v) =>
+          v.lang.toLowerCase().startsWith("en-us") ||
+          (v.lang.toLowerCase().startsWith("en") &&
+            (v.name.toLowerCase().includes("united states") ||
+              v.name.toLowerCase().includes("us english") ||
+              v.name.toLowerCase().includes("american") ||
+              v.name.toLowerCase().includes("samantha") ||
+              v.name.toLowerCase().includes("alex") ||
+              v.name.toLowerCase().includes("natural")))
+      ) ||
+      voices.find((v) => v.lang.toLowerCase().startsWith("en"));
 
-    if (jaVoice) {
-      utterance.voice = jaVoice;
-      utterance.lang = jaVoice.lang || "ja-JP";
+    if (usVoice) {
+      utterance.voice = usVoice;
+      utterance.lang = usVoice.lang || "en-US";
     } else {
-      utterance.lang = "ja-JP";
+      utterance.lang = "en-US";
     }
 
     window.speechSynthesis.speak(utterance);
@@ -46,4 +54,8 @@ export function speakWithJapaneseAccent(textToSpeak: string, rate = 0.95) {
     setTimeout(performSpeak, 100);
   }
 }
+
+// Backward compatibility alias for any prior references
+export const speakWithJapaneseAccent = speakWithAmericanAccent;
+
 

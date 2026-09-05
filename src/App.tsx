@@ -20,7 +20,7 @@ export default function App() {
     showSkeleton: true,
     mirrorCamera: true,
     gestureSmoothing: true,
-    autoAdvance: false,
+    autoAdvance: true,
     audioFeedback: true,
     enableGeminiVision: true,
     geminiApiKey: "",

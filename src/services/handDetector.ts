@@ -69,6 +69,18 @@ function scoreRange(val: number, idealMin: number, idealMax: number, tolerance: 
   }
 }
 
+function scoreMin(val: number, idealMin: number, tolerance: number = 0.35): number {
+  if (val >= idealMin) return 1.0;
+  const diff = idealMin - val;
+  return Math.max(0, 1.0 - diff / (tolerance || 0.001));
+}
+
+function scoreMax(val: number, idealMax: number, tolerance: number = 0.35): number {
+  if (val <= idealMax) return 1.0;
+  const diff = val - idealMax;
+  return Math.max(0, 1.0 - diff / (tolerance || 0.001));
+}
+
 // 2D line segment intersection check for finger crossing
 function segmentsIntersect2D(
   p1: { x: number; y: number },
@@ -157,12 +169,13 @@ export function classifyHandGesture(
   const isFingerCrossed = isCrossed2D || isLateralInverted || isPipTipCrossed || (indexCrossedOverMiddle && indexMiddleDist < 0.28);
 
   const normTarget = (targetLetter || "").toUpperCase().trim();
-  const PHRASE_SET = new Set(["PEACE", "HELLO", "I LOVE YOU", "THANK YOU", "PLEASE"]);
+  const PHRASE_SET = new Set(["PEACE", "HELLO", "HI", "I LOVE YOU", "THANK YOU", "PLEASE"]);
   const isTargetingPhrase =
     PHRASE_SET.has(normTarget) ||
     normTarget.includes("LOVE") ||
     normTarget.includes("PEACE") ||
     normTarget.includes("HELLO") ||
+    normTarget.includes("HI") ||
     normTarget.includes("THANK") ||
     normTarget.includes("PLEASE");
 
@@ -176,11 +189,11 @@ export function classifyHandGesture(
 
     // 1. I LOVE YOU (Thumb + Index + Pinky extended, Middle + Ring curled)
     {
-      const idxScore = scoreRange(indexExt, 1.30, 2.0, 0.4);
-      const pinkyScore = scoreRange(pinkyExt, 1.30, 2.0, 0.4);
-      const thumbScore = scoreRange(thumbSideDist, 0.80, 2.0, 0.4);
-      const midCurl = scoreRange(middleExt, 0.5, 1.18, 0.35);
-      const ringCurl = scoreRange(ringExt, 0.5, 1.18, 0.35);
+      const idxScore = scoreMin(indexExt, 1.25, 0.4);
+      const pinkyScore = scoreMin(pinkyExt, 1.25, 0.4);
+      const thumbScore = scoreMin(thumbSideDist, 0.75, 0.4);
+      const midCurl = scoreMax(middleExt, 1.20, 0.35);
+      const ringCurl = scoreMax(ringExt, 1.20, 0.35);
 
       const total = (idxScore * 0.25 + pinkyScore * 0.25 + thumbScore * 0.20 + midCurl * 0.15 + ringCurl * 0.15) * 100;
       candidates.push({
@@ -192,11 +205,11 @@ export function classifyHandGesture(
 
     // 2. PEACE (Index + Middle extended in V, Ring + Pinky curled)
     {
-      const idxScore = scoreRange(indexExt, 1.30, 2.0, 0.4);
-      const midScore = scoreRange(middleExt, 1.30, 2.0, 0.4);
-      const spreadScore = scoreRange(indexMiddleDist, 0.30, 1.2, 0.35);
-      const ringCurl = scoreRange(ringExt, 0.5, 1.18, 0.35);
-      const pinkyCurl = scoreRange(pinkyExt, 0.5, 1.18, 0.35);
+      const idxScore = scoreMin(indexExt, 1.25, 0.4);
+      const midScore = scoreMin(middleExt, 1.25, 0.4);
+      const spreadScore = scoreMin(indexMiddleDist, 0.25, 0.35);
+      const ringCurl = scoreMax(ringExt, 1.20, 0.35);
+      const pinkyCurl = scoreMax(pinkyExt, 1.20, 0.35);
 
       const total = (idxScore * 0.25 + midScore * 0.25 + spreadScore * 0.20 + ringCurl * 0.15 + pinkyCurl * 0.15) * 100;
       candidates.push({
@@ -206,47 +219,59 @@ export function classifyHandGesture(
       });
     }
 
-    // 3. HELLO (All 5 fingers extended and spread)
+    // 3. HELLO / HI (Extended fingers upright - open hand wave or salute)
     {
-      const f1 = scoreRange(thumbExt, 1.10, 2.0, 0.4);
-      const f2 = scoreRange(indexExt, 1.30, 2.0, 0.35);
-      const f3 = scoreRange(middleExt, 1.30, 2.0, 0.35);
-      const f4 = scoreRange(ringExt, 1.30, 2.0, 0.35);
-      const f5 = scoreRange(pinkyExt, 1.30, 2.0, 0.35);
-      const spread = scoreRange(indexMiddleDist, 0.20, 1.0, 0.3);
+      const f2 = scoreMin(indexExt, 1.20, 0.35);
+      const f3 = scoreMin(middleExt, 1.20, 0.35);
+      const f4 = scoreMin(ringExt, 1.20, 0.35);
+      const f5 = scoreMin(pinkyExt, 1.20, 0.35);
+      const fourExt = (f2 * 0.25 + f3 * 0.25 + f4 * 0.25 + f5 * 0.25);
+      const spread = scoreMin(indexMiddleDist, 0.22, 0.25);
 
-      const total = (f1 * 0.15 + f2 * 0.2 + f3 * 0.2 + f4 * 0.2 + f5 * 0.15 + spread * 0.1) * 94;
+      const targetBoost = (normTarget === "HELLO" || normTarget === "HI") ? 1.20 : 1.0;
+      const deboostForThankYou = normTarget === "THANK YOU" ? 0.65 : 1.0;
+      const total = Math.min(98, (fourExt * 0.70 + spread * 0.30) * 94 * targetBoost * deboostForThankYou);
+      const targetLabel = normTarget === "HI" ? "HI" : "HELLO";
+      const altLabel = targetLabel === "HI" ? "HELLO" : "HI";
       candidates.push({
-        letter: "HELLO",
+        letter: targetLabel,
         score: Math.round(total),
-        details: "Hello: Open palm with all fingers extended.",
+        details: `${targetLabel}: Open palm with fingers extended (interchangeable with ${altLabel}).`,
+      });
+      candidates.push({
+        letter: altLabel,
+        score: Math.round(total),
+        details: `${altLabel}: Open palm greeting gesture.`,
       });
     }
 
-    // 4. THANK YOU (Flat hand B shape)
+    // 4. THANK YOU (Flat open hand moving from chin/chest towards partner)
     {
-      const f2 = scoreRange(indexExt, 1.30, 2.0, 0.35);
-      const f3 = scoreRange(middleExt, 1.30, 2.0, 0.35);
-      const f4 = scoreRange(ringExt, 1.30, 2.0, 0.35);
-      const f5 = scoreRange(pinkyExt, 1.30, 2.0, 0.35);
-      const close = scoreRange(indexMiddleDist, 0.0, 0.32, 0.25);
+      const f2 = scoreMin(indexExt, 1.20, 0.35);
+      const f3 = scoreMin(middleExt, 1.20, 0.35);
+      const f4 = scoreMin(ringExt, 1.20, 0.35);
+      const f5 = scoreMin(pinkyExt, 1.20, 0.35);
+      const fourExt = (f2 * 0.25 + f3 * 0.25 + f4 * 0.25 + f5 * 0.25);
+      const close = scoreMax(indexMiddleDist, 0.32, 0.25);
 
-      const total = (f2 * 0.25 + f3 * 0.25 + f4 * 0.25 + f5 * 0.15 + close * 0.1) * 93;
+      const targetBoost = normTarget === "THANK YOU" ? 1.25 : 1.0;
+      const total = Math.min(98, (fourExt * 0.75 + close * 0.25) * 95 * targetBoost);
       candidates.push({
         letter: "THANK YOU",
         score: Math.round(total),
-        details: "Thank You: Flat hand moving forward from chin/chest.",
+        details: "Thank You: Flat hand moving forward from chin or chest.",
       });
     }
 
     // 5. PLEASE (Flat hand over chest)
     {
-      const f2 = scoreRange(indexExt, 1.30, 2.0, 0.35);
-      const f3 = scoreRange(middleExt, 1.30, 2.0, 0.35);
-      const f4 = scoreRange(ringExt, 1.30, 2.0, 0.35);
-      const f5 = scoreRange(pinkyExt, 1.30, 2.0, 0.35);
+      const f2 = scoreMin(indexExt, 1.20, 0.35);
+      const f3 = scoreMin(middleExt, 1.20, 0.35);
+      const f4 = scoreMin(ringExt, 1.20, 0.35);
+      const f5 = scoreMin(pinkyExt, 1.20, 0.35);
 
-      const total = (f2 * 0.25 + f3 * 0.25 + f4 * 0.25 + f5 * 0.25) * 93;
+      const targetBoost = normTarget === "PLEASE" ? 1.25 : 1.0;
+      const total = Math.min(98, (f2 * 0.25 + f3 * 0.25 + f4 * 0.25 + f5 * 0.25) * 93 * targetBoost);
       candidates.push({
         letter: "PLEASE",
         score: Math.round(total),
@@ -539,27 +564,39 @@ export function classifyHandGesture(
 
   // Determine if it matches the target letter or phrase
   let isMatch = false;
+  const isGreetingTarget = normTarget === "HELLO" || normTarget === "HI";
+  const isGreetingPredicted = predicted.toUpperCase() === "HELLO" || predicted.toUpperCase() === "HI";
+
   if (normTarget) {
     if (predicted.toUpperCase() === normTarget) {
       isMatch = finalConfidence >= 68;
+    } else if (isGreetingTarget && isGreetingPredicted) {
+      // HELLO and HI are completely interchangeable
+      isMatch = finalConfidence >= 68;
     } else if (isTargetingPhrase) {
-      if (normTarget === "HELLO" && (predicted === "HELLO" || predicted === "B")) {
+      if (isGreetingTarget && (isGreetingPredicted || predicted === "B" || predicted === "THANK YOU")) {
         isMatch = finalConfidence >= 68;
       } else if (normTarget === "I LOVE YOU" && (predicted === "I LOVE YOU" || predicted === "Y")) {
         isMatch = finalConfidence >= 68;
       } else if (normTarget === "PEACE" && (predicted === "PEACE" || predicted === "V")) {
         isMatch = finalConfidence >= 68;
-      } else if (normTarget === "THANK YOU" && (predicted === "THANK YOU" || predicted === "B")) {
-        isMatch = finalConfidence >= 68;
-      } else if (normTarget === "PLEASE" && (predicted === "PLEASE" || predicted === "B")) {
-        isMatch = finalConfidence >= 68;
+      } else if (normTarget === "THANK YOU" && (predicted === "THANK YOU" || predicted === "B" || predicted === "HELLO" || predicted === "HI" || predicted === "PLEASE")) {
+        isMatch = finalConfidence >= 65;
+      } else if (normTarget === "PLEASE" && (predicted === "PLEASE" || predicted === "B" || predicted === "THANK YOU")) {
+        isMatch = finalConfidence >= 65;
       }
     }
   }
 
   let feedbackDetails = bestCandidate.details;
   if (isMatch) {
-    feedbackDetails = `Accurate sign for ${normTarget}! Great posture.`;
+    if (normTarget === "THANK YOU") {
+      feedbackDetails = "Accurate sign for THANK YOU! Flat hand moving forward from chin or chest.";
+    } else if (isGreetingTarget && isGreetingPredicted) {
+      feedbackDetails = `Accurate sign for ${normTarget} (interchangeable greeting)! Great posture.`;
+    } else {
+      feedbackDetails = `Accurate sign for ${normTarget}! Great posture.`;
+    }
   } else if (normTarget && normTarget !== predicted) {
     feedbackDetails = `Detected '${predicted}'. Adjust hand to form '${normTarget}'.`;
   }
@@ -723,12 +760,24 @@ export function generateSyntheticLandmarks(targetLetter: string, time = Date.now
     thumbX = 0.48;
     indexOffsetX = -0.04;
     middleOffsetX = 0.04;
-  } else if (letter === "HELLO" || letter === "THANK YOU" || letter === "PLEASE") {
+  } else if (letter === "HELLO" || letter === "HI") {
+    indexExt = 0.26;
+    middleExt = 0.26;
+    ringExt = 0.26;
+    pinkyExt = 0.26;
+    thumbX = 0.32;
+    indexOffsetX = -0.03;
+    middleOffsetX = 0.03;
+    pinkyOffsetX = 0.04;
+  } else if (letter === "THANK YOU" || letter === "PLEASE") {
     indexExt = 0.26;
     middleExt = 0.26;
     ringExt = 0.26;
     pinkyExt = 0.26;
     thumbX = 0.46;
+    indexOffsetX = 0;
+    middleOffsetX = 0;
+    pinkyOffsetX = 0;
   }
 
   return [
@@ -802,16 +851,22 @@ export function detectSignLanguagePhrase(landmarks: Point3D[]): {
     return { isPhrase: true, phrase: "i love you", confidence: conf };
   }
 
-  // 2. "HELLO" / "OPEN HAND": All 5 fingers extended and spread open
-  if (isIndexExt && isMiddleExt && isRingExt && isPinkyExt && thumbSideDist > 0.75 && indexMiddleDist > 0.26) {
-    const conf = Math.round((80 + Math.min(13, indexMiddleDist * 10)) * 10) / 10;
-    return { isPhrase: true, phrase: "hello", confidence: conf };
-  }
+  // 2. "HELLO" / "OPEN HAND" vs "THANK YOU" / "FLAT HAND": 4 or 5 fingers extended upright
+  if (isIndexExt && isMiddleExt && isRingExt && isPinkyExt) {
+    // In ASL:
+    // - "THANK YOU" is signed with fingers held flat together (B handshape) moving from chin or forward.
+    // - "HELLO" is signed as an open palm wave with fingers spread wide.
+    const isFingersSpread = indexMiddleDist > 0.28 || middleRingDist > 0.28 || thumbSideDist > 1.05;
 
-  // 3. "THANK YOU" / "PLEASE": 4 fingers straight together (B handshape)
-  if (isIndexExt && isMiddleExt && isRingExt && isPinkyExt && indexMiddleDist < 0.28 && middleRingDist < 0.28) {
-    const conf = Math.round((79 + Math.min(12, (0.3 - indexMiddleDist) * 20)) * 10) / 10;
-    return { isPhrase: true, phrase: "thank you", confidence: conf };
+    if (!isFingersSpread) {
+      // 4 fingers flat and together = "thank you"
+      const conf = Math.round((85 + Math.min(9, Math.max(0, (0.28 - indexMiddleDist) * 30))) * 10) / 10;
+      return { isPhrase: true, phrase: "thank you", confidence: conf };
+    }
+
+    // Open hand with spread fingers = "hello"
+    const conf = Math.round((85 + Math.min(9, Math.max(indexMiddleDist * 8, 3))) * 10) / 10;
+    return { isPhrase: true, phrase: "hello", confidence: conf };
   }
 
   // 4. "YES": Tight fist nodding

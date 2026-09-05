@@ -2,7 +2,7 @@ import React, { useRef, useEffect, useState, useCallback } from "react";
 import { Camera, Volume2, Sparkles, ChevronRight, ChevronLeft, Settings, AlertCircle, PlayCircle, RefreshCw, Info, X, CheckCircle, BookOpen } from "lucide-react";
 import { ASL_ALPHABET, ASL_PHRASES } from "../data/aslAlphabet";
 import { SamplingSettings, DetectionResult, Point3D } from "../types/sign";
-import { speakWithJapaneseAccent } from "../services/speechService";
+import { speakWithAmericanAccent } from "../services/speechService";
 import { initHandLandmarker, classifyHandGesture, drawHandLandmarksOnCanvas, generateSyntheticLandmarks, drawHandBoundingBoxWithLabel } from "../services/handDetector";
 import confetti from "canvas-confetti";
 
@@ -444,7 +444,7 @@ export const LiveCameraStudio: React.FC<LiveCameraStudioProps> = ({
   };
 
   const handleSpeakText = () => {
-    speakWithJapaneseAccent(inputText, 0.95);
+    speakWithAmericanAccent(inputText, 0.95);
   };
 
   return (
@@ -507,6 +507,7 @@ export const LiveCameraStudio: React.FC<LiveCameraStudioProps> = ({
                 <div className="flex flex-wrap gap-1">
                   {[
                     "HELLO WORLD",
+                    "HI WORLD",
                     "PLEASE AND THANK YOU",
                     "PEACE & LOVE",
                     "I LOVE YOU ALL",

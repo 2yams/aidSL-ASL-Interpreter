@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useState, useCallback } from "react";
 import { Video, Copy, Volume2, Trash2, Check, Camera, RefreshCw, PlayCircle, AlertCircle, PlusCircle, Sparkles, Activity } from "lucide-react";
 import { SamplingSettings, Point3D } from "../types/sign";
-import { speakWithJapaneseAccent } from "../services/speechService";
+import { speakWithAmericanAccent } from "../services/speechService";
 import {
   initHandLandmarker,
   classifyHandGesture,
@@ -43,6 +43,7 @@ export const RealtimeTranslator: React.FC<RealtimeTranslatorProps> = ({ settings
   const [confidence, setConfidence] = useState<number>(0);
   const [isCopied, setIsCopied] = useState(false);
   const [autoAddMode, setAutoAddMode] = useState(false);
+  const [textToSpeechEnabled, setTextToSpeechEnabled] = useState(true);
   const [holdCount, setHoldCount] = useState(0);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -52,18 +53,19 @@ export const RealtimeTranslator: React.FC<RealtimeTranslatorProps> = ({ settings
   const lastSpokenTextRef = useRef<string>("");
   const lastSpokenTimestampRef = useRef<number>(0);
 
-  // Debounced TTS function with Japanese accent preference
+  // Debounced TTS function with American accent preference
   const speakDebounced = useCallback((textToSpeak: string) => {
+    if (!textToSpeechEnabled) return;
     if (!textToSpeak || typeof window === "undefined" || !("speechSynthesis" in window)) return;
     const now = Date.now();
     const cleanText = textToSpeak.trim();
     if (cleanText === lastSpokenTextRef.current && now - lastSpokenTimestampRef.current < 2500) {
       return;
     }
-    speakWithJapaneseAccent(cleanText, 0.95);
+    speakWithAmericanAccent(cleanText, 0.95);
     lastSpokenTextRef.current = cleanText;
     lastSpokenTimestampRef.current = now;
-  }, []);
+  }, [textToSpeechEnabled]);
 
   const requestCameraAccess = async () => {
     setCameraError(null);
@@ -449,15 +451,33 @@ export const RealtimeTranslator: React.FC<RealtimeTranslatorProps> = ({ settings
               </button>
             </div>
 
-            <label className="flex items-center gap-2 cursor-pointer text-xs font-mono text-[#555] select-none">
-              <input
-                type="checkbox"
-                checked={autoAddMode}
-                onChange={(e) => setAutoAddMode(e.target.checked)}
-                className="w-4 h-4 accent-black cursor-pointer"
-              />
-              <span>Auto-commit on hold</span>
-            </label>
+            <div className="flex items-center gap-4">
+              <label
+                id="realtime-tts-action-toggle"
+                className="flex items-center gap-2 cursor-pointer text-xs font-mono text-[#444] hover:text-black select-none"
+              >
+                <input
+                  type="checkbox"
+                  id="realtime-tts-checkbox"
+                  checked={textToSpeechEnabled}
+                  onChange={(e) => setTextToSpeechEnabled(e.target.checked)}
+                  className="w-4 h-4 accent-black cursor-pointer rounded"
+                />
+                <Volume2 className={`w-3.5 h-3.5 ${textToSpeechEnabled ? "text-emerald-600" : "text-zinc-400"}`} />
+                <span>Text-to-Speech</span>
+              </label>
+
+              <label className="flex items-center gap-2 cursor-pointer text-xs font-mono text-[#555] select-none">
+                <input
+                  type="checkbox"
+                  id="auto-add-mode-checkbox"
+                  checked={autoAddMode}
+                  onChange={(e) => setAutoAddMode(e.target.checked)}
+                  className="w-4 h-4 accent-black cursor-pointer rounded"
+                />
+                <span>Auto-commit on hold</span>
+              </label>
+            </div>
           </div>
 
           {/* Automatic Gesture Detection Patterns Display */}
@@ -527,6 +547,34 @@ export const RealtimeTranslator: React.FC<RealtimeTranslatorProps> = ({ settings
           </div>
 
           <div className="space-y-3 pt-2">
+            {/* Text-to-Speech Checkbox Toggle Bar */}
+            <div className="flex items-center justify-between p-2.5 bg-[#F8F7F3] border border-[#E0E0E0] rounded-sm">
+              <label
+                htmlFor="tts-transcript-checkbox"
+                className="flex items-center gap-2 cursor-pointer text-xs font-mono text-[#1A1A1A] select-none"
+              >
+                <input
+                  type="checkbox"
+                  id="tts-transcript-checkbox"
+                  checked={textToSpeechEnabled}
+                  onChange={(e) => setTextToSpeechEnabled(e.target.checked)}
+                  className="w-4 h-4 accent-black cursor-pointer rounded"
+                />
+                <Volume2 className={`w-4 h-4 ${textToSpeechEnabled ? "text-emerald-600" : "text-zinc-400"}`} />
+                <span className="font-semibold">Text-to-Speech</span>
+              </label>
+
+              <span
+                className={`text-[9px] font-mono px-2 py-0.5 rounded font-bold uppercase tracking-wider ${
+                  textToSpeechEnabled
+                    ? "bg-emerald-100 text-emerald-800 border border-emerald-300"
+                    : "bg-zinc-200 text-zinc-600 border border-zinc-300"
+                }`}
+              >
+                {textToSpeechEnabled ? "On" : "Off"}
+              </span>
+            </div>
+
             <div className="flex items-center gap-2">
               <button
                 onClick={handleSpeakText}
